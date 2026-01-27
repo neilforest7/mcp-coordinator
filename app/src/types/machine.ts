@@ -5,6 +5,8 @@ export interface Machine {
   host?: string;
   port?: number;
   username?: string;
+  sshKeyId?: number;
+  platform?: "linux" | "windows" | "macos";
   status: "connected" | "disconnected" | "error";
   lastChecked?: Date;
 }
@@ -15,5 +17,6 @@ export interface MachineFormData {
   host?: string;
   port?: number;
   username?: string;
-  privateKey?: string;
+  sshKeyId?: number;
+  platform?: "linux" | "windows" | "macos";
 }

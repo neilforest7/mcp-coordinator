@@ -1,10 +1,26 @@
 use super::{ClaudeMCPServer, OpenCodeMCPServer};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Platform {
     Linux,
     Windows,
+}
+
+impl FromStr for Platform {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "linux" => Ok(Platform::Linux),
+            "windows" => Ok(Platform::Windows),
+            _ => Ok(Platform::Linux), // Default to Linux for now or return error?
+                                      // Existing code in remote.rs seems to return "windows" or other strings.
+                                      // Let's stick to safe default or error.
+                                      // Given this is for path conversion, defaulting to Linux (forward slashes) is safer than Windows if unknown.
+        }
+    }
 }
 
 impl Platform {
@@ -204,5 +220,14 @@ mod tests {
             adapted,
             Some(vec!["npx".to_string(), "-y".to_string(), "pkg".to_string()])
         );
+    }
+
+    #[test]
+    fn test_platform_from_str() {
+        assert_eq!(Platform::from_str("linux"), Ok(Platform::Linux));
+        assert_eq!(Platform::from_str("Linux"), Ok(Platform::Linux));
+        assert_eq!(Platform::from_str("windows"), Ok(Platform::Windows));
+        assert_eq!(Platform::from_str("Windows"), Ok(Platform::Windows));
+        assert_eq!(Platform::from_str("unknown"), Ok(Platform::Linux)); // Default behavior
     }
 }

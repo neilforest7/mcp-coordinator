@@ -46,7 +46,9 @@ export interface MCPServer {
   url?: string;
   headers?: Record<string, string>;
   source: SourceType;
+  rawConfig?: OpenCodeMCPServer | ClaudeMCPServer;
 }
+
 
 export interface SourceConfig {
   type: SourceType;
@@ -54,4 +56,16 @@ export interface SourceConfig {
   servers: MCPServer[];
   lastModified?: Date;
   md5Hash?: string;
+}
+
+export interface SyncItem {
+  name: string;
+  status: "Synced" | "CreatedInB" | "DeletedFromB" | "UpdatedInB" | "CreatedInA" | "DeletedFromA" | "UpdatedInA" | "Conflict";
+  actionDescription: string;
+  diff?: string;
+  contentMatches?: string[];
+}
+
+export interface SyncPlan {
+  items: SyncItem[];
 }

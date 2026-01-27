@@ -1,4 +1,5 @@
 use crate::config::{ClaudeConfig, OpenCodeConfig};
+use crate::paths::{get_app_paths, AppPaths};
 
 #[tauri::command]
 pub async fn read_claude_config(path: String) -> Result<ClaudeConfig, String> {
@@ -13,22 +14,37 @@ pub async fn read_claude_config(path: String) -> Result<ClaudeConfig, String> {
 
 #[tauri::command]
 pub async fn read_opencode_config(path: String) -> Result<OpenCodeConfig, String> {
+    println!("Attempting to read OpenCode config from: {}", path);
+    
     let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+        .map_err(|e| {
+            let err_msg = format!("Failed to read file at '{}': {}", path, e);
+            println!("{}", err_msg);
+            err_msg
+        })?;
 
     let config: OpenCodeConfig = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        .map_err(|e| {
+            let err_msg = format!("Failed to parse JSON in '{}': {}", path, e);
+            println!("{}", err_msg);
+            err_msg
+        })?;
 
+    println!("Successfully loaded OpenCode config from: {}", path);
     Ok(config)
 }
 
 #[tauri::command]
 pub async fn get_default_config_paths() -> Result<ConfigPaths, String> {
-    let home = dirs::home_dir()
+    let paths = get_app_paths()
         .ok_or_else(|| "Could not determine home directory".to_string())?;
 
-    let claude_path = home.join(".claude.json");
-    let opencode_path = home.join("opencode.json");
+    let claude_path = paths.claude_path;
+    let opencode_path = paths.opencode_path;
+
+    println!("Detected paths:");
+    println!("  Claude: {}", claude_path.display());
+    println!("  OpenCode: {}", opencode_path.display());
 
     Ok(ConfigPaths {
         claude: claude_path.to_string_lossy().to_string(),
@@ -60,6 +76,10 @@ mod tests {
         assert!(!paths.opencode.is_empty());
         
         // In this environment, it should be absolute path
-        assert!(paths.claude.starts_with("/"));
+        if cfg!(windows) {
+             assert!(paths.claude.contains(":\\") || paths.claude.contains(":/"));
+        } else {
+             assert!(paths.claude.starts_with("/"));
+        }
     }
 }

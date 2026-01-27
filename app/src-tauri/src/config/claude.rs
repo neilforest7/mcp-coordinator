@@ -37,6 +37,15 @@ pub struct ClaudeConfig {
     pub other_fields: HashMap<String, serde_json::Value>,
 }
 
+impl Default for ClaudeConfig {
+    fn default() -> Self {
+        Self {
+            mcp_servers: HashMap::new(),
+            other_fields: HashMap::new(),
+        }
+    }
+}
+
 impl ClaudeConfig {
     #[allow(dead_code)]
     pub fn get_enabled_servers(&self) -> Vec<(&String, &ClaudeMCPServer)> {

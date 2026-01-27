@@ -174,6 +174,42 @@ function openCodeToClaude(
 }
 ```
 
+### 3.4 JSON 导入解析算法
+
+支持用户粘贴任意 JSON 片段，系统尝试将其标准化为当前来源（Claude 或 OpenCode）的格式。
+
+```typescript
+function parseImportedJson(jsonStr: string, targetSource: "claude" | "opencode"): MCPServerConfig | null {
+  try {
+    const raw = JSON.parse(jsonStr);
+    
+    // 1. 尝试识别为完整 Config 对象 (含 mcpServers 或 mcp 键)
+    if (raw.mcpServers) {
+        // 取第一个 server
+        const key = Object.keys(raw.mcpServers)[0];
+        return normalize(raw.mcpServers[key], "claude", targetSource);
+    }
+    if (raw.mcp) {
+        const key = Object.keys(raw.mcp)[0];
+        return normalize(raw.mcp[key], "opencode", targetSource);
+    }
+
+    // 2. 尝试识别为单个 Server 对象
+    // 特征：Claude 有 "args" 且 command 是字符串; OpenCode "command" 是数组
+    if (typeof raw.command === "string") {
+        return normalize(raw, "claude", targetSource);
+    }
+    if (Array.isArray(raw.command)) {
+        return normalize(raw, "opencode", targetSource);
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
+```
+
 ---
 
 ## 4. 增量修改算法

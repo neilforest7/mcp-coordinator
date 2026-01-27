@@ -101,24 +101,58 @@ This plan breaks down the MCP Control Hub MVP (V1.0) into manageable stages foll
 
 ---
 
+## Stage 7: SSH Connection Module
+**Goal**: Implement secure SSH connection management and credential storage.
+
+**Success Criteria**:
+- [x] Dependencies added (russh, aes-gcm, sqlx, etc.)
+- [x] SQLite database initialized for credential storage
+- [x] AES-256-GCM encryption/decryption helper functions implemented
+- [x] SSH Private Key CRUD (Save encrypted, Load decrypted)
+- [x] SSH Connection test command
+- [x] Robust SSH Connection Pool (Implemented 2026-01-28)
+  - [x] Session reuse logic
+  - [x] Auto-retry on disconnect
+  - [x] Thread-safe pool management
+
+**Status**: Completed (2026-01-26)
+
+---
+
+## Stage 8: Remote Machine Management
+**Goal**: Full CRUD for remote Linux machines via SSH.
+
+**Success Criteria**:
+- [x] Add/edit/delete remote machines
+- [x] SSH Key selection in UI
+- [x] Remote config read/write via SFTP
+- [x] Platform-aware command adaptation (Windows vs Linux)
+- [x] Platform auto-detection and editing
+
+**Status**: Completed (2026-01-26)
+
+---
+
+## Stage 9: V1.0 Wrap-up & Polish
+**Goal**: Ensure all V1.0 features are robust.
+
+**Pending Tasks**:
+- [x] Implement "Nuclear Restart" (Kill Claude processes)
+- [x] Verify Environment Pre-check (npx existence/version)
+- [x] Final UI Polish (Toast notifications for errors - DONE)
+
+**Status**: Completed (2026-01-28)
+
+---
+
 ## Future Stages (V1.5+)
 
-### Stage 7: SSH Connection Module
-- SSH connection establishment with russh
-- Private key encryption with AES-256-GCM
-- Credential storage in SQLite
-
-### Stage 8: Remote Machine Management
-- Add/edit/delete remote machines
-- Test connection functionality
-- Remote config read/write via SSH
-
-### Stage 9: Cross-Source Sync
+### Stage 10: Cross-Source Sync
 - Claude ↔ OpenCode field mapping
-- Platform command adaptation
+- Platform command adaptation (Already partially done for import)
 - Sync UI with preview
 
-### Stage 10: Conflict Resolution (V1.5)
+### Stage 11: Conflict Resolution
 - MD5 fingerprint monitoring
 - Diff view UI
 - Merge strategies

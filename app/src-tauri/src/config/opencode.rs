@@ -40,6 +40,18 @@ pub struct OpenCodeConfig {
     pub other_fields: HashMap<String, serde_json::Value>,
 }
 
+impl Default for OpenCodeConfig {
+    fn default() -> Self {
+        Self {
+            schema: None,
+            plugin: None,
+            provider: None,
+            mcp: HashMap::new(),
+            other_fields: HashMap::new(),
+        }
+    }
+}
+
 impl OpenCodeConfig {
     #[allow(dead_code)]
     pub fn get_enabled_servers(&self) -> Vec<(&String, &OpenCodeMCPServer)> {
