@@ -14,7 +14,9 @@ import { Machine } from "@/types/machine";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { SyncPreview } from "@/components/sync/SyncPreview";
-import { Loader2, AlertCircle, Key, RefreshCw, RotateCcw, Wifi, WifiOff, Laptop, FileWarning, Download, Trash2, Plus } from "lucide-react";
+import { SyncModeSelector } from "@/components/sync/SyncModeSelector";
+import { SyncModeSelection } from "@/types/sync";
+import { Loader2, AlertCircle, Key, RefreshCw, RotateCcw, Wifi, WifiOff, Laptop, FileWarning, Download, Trash2, Plus, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -30,7 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAppStore } from "@/stores/appStore";
-import { useConfigPaths, useRemoteConfigPaths, useClaudeConfig, useOpenCodeConfig, useClaudeMutations, useOpenCodeMutations } from "@/hooks/useConfig";
+import { useConfigPaths, useRemoteConfigPaths, useClaudeConfig, useOpenCodeConfig, useClaudeMutations, useOpenCodeMutations, useClaudeBatchMutations, useOpenCodeBatchMutations } from "@/hooks/useConfig";
 import { useMachines } from "@/hooks/useMachines";
 import { useEnvironmentCheck } from "@/hooks/useSystem";
 import { transformClaudeConfig, transformOpenCodeConfig } from "@/lib/transformers";
@@ -219,6 +221,8 @@ function App() {
   // Dialog states
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
+  const [isSyncModeSelectorOpen, setIsSyncModeSelectorOpen] = useState(false);
+  const [selectedSyncMode, setSelectedSyncMode] = useState<SyncModeSelection | null>(null);
   const [editingServer, setEditingServer] = useState<MCPServer | null>(null);
 
   const { data: localPaths, isLoading: isPathsLoading, error: pathsError, refetch: refetchLocalPaths } = useConfigPaths();
@@ -234,10 +238,19 @@ function App() {
       data: claudeData, 
       isLoading: isClaudeLoading, 
       error: claudeError,
-      refetch: refetchClaude
+      refetch: refetchClaude,
+      isFetching: isClaudeFetching,
+      isStale: isClaudeStale
   } = useClaudeConfig(localPaths?.claude, activeMachineId);
   
-  const { data: opencodeData, isLoading: isOpenCodeLoading, error: opencodeError, refetch: refetchOpenCode } = useOpenCodeConfig(localPaths?.opencode, activeMachineId);
+  const { 
+    data: opencodeData, 
+    isLoading: isOpenCodeLoading, 
+    error: opencodeError, 
+    refetch: refetchOpenCode,
+    isFetching: isOpenCodeFetching,
+    isStale: isOpenCodeStale
+  } = useOpenCodeConfig(localPaths?.opencode, activeMachineId);
 
   // Environment Check
   const { data: envCheck, refetch: refetchEnvCheck } = useEnvironmentCheck(activeMachineId);
@@ -259,6 +272,11 @@ function App() {
 
   // Connection status logic
   const isRemote = activeMachineId !== "local";
+  
+  // Cache status for UI (after isRemote is defined)
+  const isFetching = isClaudeFetching || isOpenCodeFetching;
+  const isShowingCachedData = isRemote && (isClaudeStale || isOpenCodeStale) && (claudeData || opencodeData);
+  
   const connectionStatus = (() => {
       if (!isRemote) return "local";
       if (isPathsLoading) return "checking";
@@ -334,6 +352,8 @@ function App() {
   // Mutations
   const claudeMutations = useClaudeMutations(localPaths?.claude || "", activeMachineId);
   const opencodeMutations = useOpenCodeMutations(localPaths?.opencode || "", activeMachineId);
+  const claudeBatchMutations = useClaudeBatchMutations(localPaths?.claude || "", activeMachineId);
+  const opencodeBatchMutations = useOpenCodeBatchMutations(localPaths?.opencode || "", activeMachineId);
 
   // Transform data
   const claudeServers = transformClaudeConfig(claudeConfig);
@@ -405,6 +425,31 @@ function App() {
      });
   };
 
+  const handleBatchToggle = (servers: MCPServer[], enabled: boolean) => {
+    if (servers.length === 0) return;
+    
+    const claudeServersToToggle = servers.filter(s => s.source === "claude");
+    const opencodeServersToToggle = servers.filter(s => s.source === "opencode");
+    
+    const promises: Promise<void>[] = [];
+    
+    if (claudeServersToToggle.length > 0) {
+      const items = claudeServersToToggle.map(s => ({ name: s.originalName, enabled }));
+      promises.push(claudeBatchMutations.batchToggle.mutateAsync(items));
+    }
+    
+    if (opencodeServersToToggle.length > 0) {
+      const items = opencodeServersToToggle.map(s => ({ name: s.originalName, enabled }));
+      promises.push(opencodeBatchMutations.batchToggle.mutateAsync(items));
+    }
+    
+    toast.promise(Promise.all(promises), {
+      loading: `${enabled ? 'Enabling' : 'Disabling'} ${servers.length} server(s)...`,
+      success: () => `${servers.length} server(s) ${enabled ? 'enabled' : 'disabled'}`,
+      error: (e: Error) => `Failed: ${e.message}`
+    });
+  };
+
   const handleDeleteMachine = async () => {
       if (deletingMachine) {
           await deleteMachine(deletingMachine.id);
@@ -441,20 +486,46 @@ function App() {
                     {currentMachine?.name || "Select Machine"}
                  </h1>
                  
-                  {/* Connection Status Badge */}
-                 {isRemote && (
-                    <Badge variant="outline" className={cn(
+                 {/* Connection Status Badge */}
+                  {isRemote && (
+                     <Badge variant="outline" className={cn(
+                         "gap-1.5 transition-colors",
+                         connectionStatus === "connected" && "bg-green-50 text-green-700 border-green-200",
+                         connectionStatus === "disconnected" && "bg-red-50 text-red-700 border-red-200",
+                         connectionStatus === "checking" && "bg-yellow-50 text-yellow-700 border-yellow-200"
+                     )}>
+                         {connectionStatus === "connected" && <Wifi className="h-3 w-3" />}
+                         {connectionStatus === "disconnected" && <WifiOff className="h-3 w-3" />}
+                         {connectionStatus === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
+                         <span className="capitalize">{connectionStatus}</span>
+                     </Badge>
+                  )}
+                  
+                  {/* Cache Status Badge - shows when displaying cached data */}
+                  {isRemote && isShowingCachedData && (
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
                         "gap-1.5 transition-colors",
-                        connectionStatus === "connected" && "bg-green-50 text-green-700 border-green-200",
-                        connectionStatus === "disconnected" && "bg-red-50 text-red-700 border-red-200",
-                        connectionStatus === "checking" && "bg-yellow-50 text-yellow-700 border-yellow-200"
-                    )}>
-                        {connectionStatus === "connected" && <Wifi className="h-3 w-3" />}
-                        {connectionStatus === "disconnected" && <WifiOff className="h-3 w-3" />}
-                        {connectionStatus === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
-                        <span className="capitalize">{connectionStatus}</span>
+                        isFetching 
+                          ? "bg-blue-50 text-blue-700 border-blue-200" 
+                          : "bg-gray-50 text-gray-600 border-gray-200"
+                      )}
+                      title={isFetching ? "Refreshing data in background..." : "Showing cached data"}
+                    >
+                      {isFetching ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Refreshing</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="h-3 w-3" />
+                          <span>Cached</span>
+                        </>
+                      )}
                     </Badge>
-                 )}
+                  )}
                  
                  {/* Environment Status Badge */}
                  {envCheck && !envCheck.is_valid && (
@@ -500,19 +571,40 @@ function App() {
                      Reload
                  </Button>
 
-                  <Dialog open={isSyncDialogOpen} onOpenChange={setIsSyncDialogOpen}>
-                      <DialogTrigger asChild>
-                          <Button variant="ghost" size="sm" disabled={!syncClaudePath || !syncOpenCodePath}>
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Sync
-                          </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-                          {syncClaudePath && syncOpenCodePath && (
+                  {/* Sync Button - Opens Mode Selector First */}
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    disabled={!syncClaudePath || !syncOpenCodePath}
+                    onClick={() => setIsSyncModeSelectorOpen(true)}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Sync
+                  </Button>
+
+                   {/* Sync Mode Selector Dialog */}
+                   <SyncModeSelector
+                     open={isSyncModeSelectorOpen}
+                     onSelect={(selection) => {
+                       setSelectedSyncMode(selection);
+                       setIsSyncModeSelectorOpen(false);
+                       setIsSyncDialogOpen(true);
+                     }}
+                     onCancel={() => setIsSyncModeSelectorOpen(false)}
+                   />
+
+                  {/* Sync Preview Dialog */}
+                  <Dialog open={isSyncDialogOpen} onOpenChange={(open) => {
+                    setIsSyncDialogOpen(open);
+                    if (!open) setSelectedSyncMode(null);
+                  }}>
+                      <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] max-h-[90vh] overflow-y-auto">
+                          {syncClaudePath && syncOpenCodePath && selectedSyncMode && (
                               <SyncPreview 
                                  claudePath={syncClaudePath} 
                                  opencodePath={syncOpenCodePath} 
                                  machineId={syncMachineId}
+                                 syncMode={selectedSyncMode}
                                  onSyncComplete={() => {
                                      refetchClaude();
                                      refetchOpenCode();
@@ -570,6 +662,7 @@ function App() {
                                     onDelete={handleDelete}
                                     onAdd={() => setIsAddDialogOpen(true)}
                                     onRestart={handleRestart}
+                                    onBatchToggle={handleBatchToggle}
                                 />
                             </ConfigStateRenderer>
                         </div>
@@ -595,6 +688,7 @@ function App() {
                                     onDelete={handleDelete}
                                     onAdd={() => setIsAddDialogOpen(true)}
                                     onRestart={handleRestart}
+                                    onBatchToggle={handleBatchToggle}
                                 />
                             </ConfigStateRenderer>
                         </div>

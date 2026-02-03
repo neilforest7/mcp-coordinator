@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, LayoutGrid, List, ArrowUpDown, Plus, RotateCcw } from "lucide-react";
+import { Search, LayoutGrid, List, ArrowUpDown, Plus, RotateCcw, CheckSquare, X, Power, PowerOff } from "lucide-react";
 
 export type SortOption = "name-asc" | "name-desc" | "status" | "source";
 export type ViewMode = "grid" | "list";
@@ -21,6 +21,14 @@ interface ServerToolbarProps {
   onViewChange: (value: ViewMode) => void;
   onAdd: () => void;
   onRestart?: () => void;
+  selectionMode?: boolean;
+  onToggleSelectionMode?: () => void;
+  selectedCount?: number;
+  totalCount?: number;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
+  onBatchEnable?: () => void;
+  onBatchDisable?: () => void;
 }
 
 export function ServerToolbar({
@@ -32,7 +40,68 @@ export function ServerToolbar({
   onViewChange,
   onAdd,
   onRestart,
+  selectionMode = false,
+  onToggleSelectionMode,
+  selectedCount = 0,
+  totalCount = 0,
+  onSelectAll,
+  onDeselectAll,
+  onBatchEnable,
+  onBatchDisable,
 }: ServerToolbarProps) {
+  if (selectionMode) {
+    return (
+      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between py-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">
+            {selectedCount} of {totalCount} selected
+          </span>
+        </div>
+        
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap justify-end">
+          <Button variant="outline" size="sm" onClick={onSelectAll} className="gap-2">
+            Select All
+          </Button>
+          {selectedCount > 0 && (
+            <Button variant="outline" size="sm" onClick={onDeselectAll} className="gap-2">
+              Deselect All
+            </Button>
+          )}
+          
+          <div className="h-6 w-px bg-border mx-1" />
+          
+          {selectedCount > 0 && (
+            <>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onBatchEnable} 
+                className="gap-2 text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-950"
+              >
+                <Power className="h-4 w-4" />
+                Enable ({selectedCount})
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onBatchDisable} 
+                className="gap-2 text-yellow-600 border-yellow-200 hover:bg-yellow-50 hover:text-yellow-700 dark:text-yellow-400 dark:border-yellow-800 dark:hover:bg-yellow-950"
+              >
+                <PowerOff className="h-4 w-4" />
+                Disable ({selectedCount})
+              </Button>
+            </>
+          )}
+          
+          <Button variant="ghost" size="sm" onClick={onToggleSelectionMode} className="gap-2">
+            <X className="h-4 w-4" />
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col sm:flex-row gap-4 items-center justify-between py-4">
       <div className="relative w-full sm:w-72">
@@ -50,6 +119,13 @@ export function ServerToolbar({
           <Button variant="outline" size="sm" onClick={onRestart} className="gap-2 text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-950">
              <RotateCcw className="h-4 w-4" />
              Restart Host
+          </Button>
+        )}
+
+        {onToggleSelectionMode && totalCount > 0 && (
+          <Button variant="outline" size="sm" onClick={onToggleSelectionMode} className="gap-2">
+            <CheckSquare className="h-4 w-4" />
+            Select
           </Button>
         )}
 

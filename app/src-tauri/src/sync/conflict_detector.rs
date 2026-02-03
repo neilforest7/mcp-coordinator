@@ -7,6 +7,7 @@ struct FingerprintData {
     command: Option<String>,
     args: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>, // BTreeMap for stable ordering
+    url: Option<String>,
     // we don't include enabled/disabled in fingerprint for content conflict?
     // PRD says: "Hash: name + command + args + env (sorted)"
     // If enabled state changes, is it a conflict? Usually yes.
@@ -28,6 +29,7 @@ impl ConflictDetector {
             command: server.command.clone(),
             args: server.args.clone(),
             env: server.env.clone().map(|m| m.into_iter().collect()),
+            url: server.url.clone(),
             // Exclude enabled state from content fingerprint to avoid false content conflicts
             enabled: true,
         };
@@ -49,10 +51,21 @@ impl ConflictDetector {
             command,
             args,
             env: server.environment.clone().map(|m| m.into_iter().collect()),
+            url: server.url.clone(),
             // Exclude enabled state from content fingerprint
             enabled: true,
         };
         Self::hash(&data)
+    }
+
+    /// Canonical fingerprint for cross-source content matching.
+    /// Normalizes both Claude and OpenCode formats to the same structure.
+    pub fn canonical_fingerprint_claude(server: &ClaudeMCPServer) -> String {
+        Self::fingerprint_claude(server)
+    }
+
+    pub fn canonical_fingerprint_opencode(server: &OpenCodeMCPServer) -> String {
+        Self::fingerprint_opencode(server)
     }
 
     fn hash<T: Serialize>(data: &T) -> String {

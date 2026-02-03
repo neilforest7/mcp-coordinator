@@ -1,11 +1,13 @@
 use crate::config::{ClaudeConfig, OpenCodeConfig};
 use crate::config::converter::{self, Platform};
-use crate::sync::engine::{SyncEngine, SyncItem};
+use crate::sync::engine::{SyncEngine, SyncItem, SyncStatus};
 use crate::sync::conflict_detector::ConflictDetector;
+use crate::sync::diff_generator;
 use crate::db::sync_history;
 use crate::commands::remote;
 use crate::ssh::pool::SshPool;
 use std::fs;
+use std::collections::HashMap;
 use tauri::{command, State};
 use sqlx::{Pool, Sqlite};
 
@@ -42,22 +44,72 @@ pub async fn generate_sync_plan(
     let opencode_config: OpenCodeConfig = serde_json::from_str(&opencode_content)
         .map_err(|e| format!("Failed to parse OpenCode config: {}", e))?;
 
-    let claude_map = claude_config.mcp_servers
+    let claude_map: HashMap<String, _> = claude_config.mcp_servers
         .into_iter()
         .filter(|(k, _)| !k.starts_with("_disabled_"))
         .collect();
 
-    let opencode_map = opencode_config.mcp;
+    let opencode_map = opencode_config.mcp.clone();
+
+    let platform = if let Some(id) = machine_id {
+        let (_, _, _, _, p) = remote::get_connection_info(&pool, id).await?;
+        p.parse().unwrap_or(Platform::Linux)
+    } else {
+        Platform::current()
+    };
 
     let target_id = machine_id.map(|id| format!("machine_{}", id)).unwrap_or_else(|| "local".to_string());
     let engine = SyncEngine::new(&pool, "cross-source", &target_id);
     
-    let items = engine.plan(
+    let mut items = engine.plan(
         &claude_map,
         &opencode_map,
         |v| ConflictDetector::fingerprint_claude(v),
-        |v| ConflictDetector::fingerprint_opencode(v)
+        |v| ConflictDetector::fingerprint_opencode(v),
+        |v| ConflictDetector::canonical_fingerprint_claude(v),
+        |v| ConflictDetector::canonical_fingerprint_opencode(v),
     ).await?;
+
+    // Enrich items with diff data and JSON
+    for item in items.iter_mut() {
+        let claude_server = claude_map.get(&item.name);
+        let opencode_server = opencode_map.get(&item.name);
+
+        // Always populate JSON fields for UI details
+        if let Some(cs) = claude_server {
+            item.claude_json = Some(serde_json::to_string_pretty(cs).unwrap_or_default());
+        }
+        if let Some(os) = opencode_server {
+            item.opencode_json = Some(serde_json::to_string_pretty(os).unwrap_or_default());
+        }
+
+        if item.status == SyncStatus::Conflict {
+            if let (Some(cs), Some(os)) = (claude_server, opencode_server) {
+                let claude_json = item.claude_json.clone().unwrap_or_default();
+                let opencode_json = item.opencode_json.clone().unwrap_or_default();
+                
+                // Convert for normalization
+                let claude_as_opencode = converter::claude_to_opencode(cs, platform);
+                let opencode_as_claude = converter::opencode_to_claude(os, platform);
+                
+                let claude_as_opencode_json = serde_json::to_string_pretty(&claude_as_opencode).unwrap_or_default();
+                let opencode_as_claude_json = serde_json::to_string_pretty(&opencode_as_claude).unwrap_or_default();
+
+                let diff = diff_generator::generate_unified_diff(
+                    &claude_json, 
+                    &opencode_json, 
+                    "Claude", 
+                    "OpenCode"
+                );
+                let diff_result = diff_generator::generate_diff_lines(&claude_json, &opencode_json);
+                
+                item.diff = Some(diff);
+                item.diff_lines = Some(diff_result.lines);
+                item.claude_as_opencode_json = Some(claude_as_opencode_json);
+                item.opencode_as_claude_json = Some(opencode_as_claude_json);
+            }
+        }
+    }
 
     Ok(SyncPlan { items })
 }

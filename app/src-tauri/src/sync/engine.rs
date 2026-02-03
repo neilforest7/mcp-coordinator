@@ -1,4 +1,5 @@
 use crate::db::sync_history::{self, SyncHistory};
+use crate::sync::diff_generator::DiffLine;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
@@ -19,12 +20,18 @@ pub enum SyncStatus {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncItem {
     pub name: String,
     pub status: SyncStatus,
     pub action_description: String,
-    pub diff: Option<String>, // TODO: Implement diff detail
-    pub content_matches: Vec<String>, // Names of items in the OTHER list that have identical content
+    pub diff: Option<String>,           // Unified diff string for display
+    pub diff_lines: Option<Vec<DiffLine>>, // Structured diff lines for UI rendering
+    pub claude_json: Option<String>,    // Pretty-printed Claude config JSON
+    pub opencode_json: Option<String>,  // Pretty-printed OpenCode config JSON
+    pub claude_as_opencode_json: Option<String>, // Claude converted to OpenCode format
+    pub opencode_as_claude_json: Option<String>, // OpenCode converted to Claude format
+    pub content_matches: Vec<String>,   // Names of items in the OTHER list that have identical content
 }
 
 pub struct SyncEngine<'a> {
@@ -42,32 +49,36 @@ impl<'a> SyncEngine<'a> {
         }
     }
 
-    pub async fn plan<A, B, FA, FB>(
+    pub async fn plan<A, B, FA, FB, CA, CB>(
         &self,
         source_a: &HashMap<String, A>,
         source_b: &HashMap<String, B>,
         hasher_a: FA,
         hasher_b: FB,
+        canonical_hasher_a: CA,
+        canonical_hasher_b: CB,
     ) -> Result<Vec<SyncItem>, String>
     where
         FA: Fn(&A) -> String,
         FB: Fn(&B) -> String,
+        CA: Fn(&A) -> String,
+        CB: Fn(&B) -> String,
     {
         let mut plan = Vec::new();
         let mut all_keys: Vec<&String> = source_a.keys().chain(source_b.keys()).collect();
         all_keys.sort();
         all_keys.dedup();
 
-        // Pre-calculate hashes for content matching
+        // Pre-calculate hashes for content matching using CANONICAL hashers
         let mut b_hashes: HashMap<String, Vec<String>> = HashMap::new(); // Hash -> Vec<Name>
         for (k, v) in source_b {
-            let h = hasher_b(v);
+            let h = canonical_hasher_b(v);
             b_hashes.entry(h).or_default().push(k.clone());
         }
 
         let mut a_hashes: HashMap<String, Vec<String>> = HashMap::new(); // Hash -> Vec<Name>
         for (k, v) in source_a {
-            let h = hasher_a(v);
+            let h = canonical_hasher_a(v);
             a_hashes.entry(h).or_default().push(k.clone());
         }
 
@@ -89,7 +100,7 @@ impl<'a> SyncEngine<'a> {
                 // If we are looking at A -> B sync logic:
                 // If "CreatedInA" or "UpdatedInA", we care if B has something similar.
                 if let Some(val_a) = item_a {
-                    let h_a = hasher_a(val_a);
+                    let h_a = canonical_hasher_a(val_a);
                     if let Some(names) = b_hashes.get(&h_a) {
                         for n in names {
                             if n != key { // Don't match self if same name
@@ -101,7 +112,7 @@ impl<'a> SyncEngine<'a> {
 
                 // If "CreatedInB" or "UpdatedInB", we care if A has something similar.
                 if let Some(val_b) = item_b {
-                    let h_b = hasher_b(val_b);
+                    let h_b = canonical_hasher_b(val_b);
                     if let Some(names) = a_hashes.get(&h_b) {
                         for n in names {
                             if n != key {
@@ -116,6 +127,11 @@ impl<'a> SyncEngine<'a> {
                     status: status.clone(),
                     action_description: self.describe_action(&status, key),
                     diff: None,
+                    diff_lines: None,
+                    claude_json: None,
+                    opencode_json: None,
+                    claude_as_opencode_json: None,
+                    opencode_as_claude_json: None,
                     content_matches: matches,
                 });
             }
@@ -255,7 +271,7 @@ mod tests {
         // Hashers
         let hasher = |s: &&str| format!("hash_{}", s);
 
-        let plan = engine.plan(&source_a, &source_b, hasher, hasher).await.unwrap();
+        let plan = engine.plan(&source_a, &source_b, hasher, hasher, hasher, hasher).await.unwrap();
 
         // Expectation:
         // 1. "server1": CreatedInB (since it's in A but not B, and no history) - Wait, logic says CreatedInA if A has it and B doesn't.
@@ -300,7 +316,7 @@ mod tests {
 
         let hasher = |s: &&str| format!("hash_{}", s);
 
-        let plan = engine.plan(&source_a, &source_b, hasher, hasher).await.unwrap();
+        let plan = engine.plan(&source_a, &source_b, hasher, hasher, hasher, hasher).await.unwrap();
 
         let item = plan.iter().find(|i| i.name == "server1").unwrap();
         // Since no history, this should be Conflict

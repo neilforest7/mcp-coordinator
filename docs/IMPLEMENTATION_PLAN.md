@@ -11,9 +11,9 @@ This plan breaks down the MCP Control Hub MVP (V1.0) into manageable stages foll
 
 ### MVP Scope (V1.0)
 - [x] Core link: Read/modify local configurations
-- [ ] SSH encrypted storage: Secure remote connection management
-- [ ] Single source CRUD: Basic add/edit/delete operations
-- [ ] Pre-check and restart: Environment validation and process restart
+- [x] SSH encrypted storage: Secure remote connection management
+- [x] Single source CRUD: Basic add/edit/delete operations
+- [x] Pre-check and restart: Environment validation and process restart
 
 ---
 
@@ -148,14 +148,26 @@ This plan breaks down the MCP Control Hub MVP (V1.0) into manageable stages foll
 ## Future Stages (V1.5+)
 
 ### Stage 10: Cross-Source Sync
-- Claude ↔ OpenCode field mapping
-- Platform command adaptation (Already partially done for import)
-- Sync UI with preview
+- [x] Claude ↔ OpenCode field mapping (converter.rs)
+- [x] Platform command adaptation (platform_adapter.rs)
+- [x] Sync UI with preview (SyncPreview.tsx)
+
+**Status**: Completed (2026-02-02)
 
 ### Stage 11: Conflict Resolution
-- MD5 fingerprint monitoring
-- Diff view UI
-- Merge strategies
+- [x] MD5 fingerprint monitoring (conflict_detector.rs)
+- [x] Diff view UI (ConflictDiffViewer.tsx)
+- [x] Side-by-side JSON comparison
+- [x] Resolution buttons (Keep Claude / Keep OpenCode)
+
+**Status**: Completed (2026-02-02)
+
+### Stage 12: Batch Operations (Planned)
+- [x] Enable/disable multiple servers at once
+- [x] Bulk sync operations
+- [x] Select all / deselect all
+
+**Status**: Completed (2026-02-02)
 
 ---
 
@@ -169,6 +181,12 @@ This plan breaks down the MCP Control Hub MVP (V1.0) into manageable stages foll
 | 4. Frontend UI | Completed | 2026-01-22 | 2026-01-22 |
 | 5. Tauri Commands | Completed | 2026-01-22 | 2026-01-22 |
 | 6. Local Machine | Completed | 2026-01-22 | 2026-01-22 |
+| 7. SSH Connection | Completed | 2026-01-26 | 2026-01-28 |
+| 8. Remote Machine | Completed | 2026-01-26 | 2026-01-26 |
+| 9. V1.0 Wrap-up | Completed | 2026-01-28 | 2026-01-28 |
+| 10. Cross-Source Sync | Completed | 2026-01-28 | 2026-02-02 |
+| 11. Conflict Resolution | Completed | 2026-02-02 | 2026-02-02 |
+| 12. Batch Operations | Completed | 2026-02-02 | 2026-02-02 |
 
 ---
 

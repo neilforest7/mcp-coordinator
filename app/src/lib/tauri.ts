@@ -43,6 +43,12 @@ export const tauriApi = {
   deleteOpenCodeServer: (path: string, serverName: string) => 
     invoke<void>("delete_opencode_server", { path, serverName }),
 
+  batchToggleClaudeServers: (path: string, items: { name: string; enabled: boolean }[]) =>
+    invoke<void>("batch_toggle_claude_servers", { path, items }),
+
+  batchToggleOpencodeServers: (path: string, items: { name: string; enabled: boolean }[]) =>
+    invoke<void>("batch_toggle_opencode_servers", { path, items }),
+
   readRemoteClaudeConfig: (machineId: number) => 
     invoke<RemoteConfigResponse<ClaudeConfig>>("read_remote_claude_config", { machineId }),
 

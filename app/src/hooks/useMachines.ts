@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Machine } from "../types/machine";
 import { toast } from "sonner";
+import { usePrefetchRemoteConfigs } from "./useConfig";
 
 const DEFAULT_LOCAL_MACHINE: Machine = { 
     id: "local", 
@@ -25,6 +26,10 @@ interface BackendMachine {
 export function useMachines() {
     const [machines, setMachines] = useState<Machine[]>([DEFAULT_LOCAL_MACHINE]);
     const [loading, setLoading] = useState(false);
+    const { prefetchMachineConfigs, prefetchSingleMachine } = usePrefetchRemoteConfigs();
+    
+    // Track if initial prefetch has been done to avoid duplicate prefetches
+    const hasPrefetched = useRef(false);
 
     // Initial platform detection
     useEffect(() => {
@@ -73,18 +78,35 @@ export function useMachines() {
                 const local = prev.find(m => m.id === "local") || DEFAULT_LOCAL_MACHINE;
                 return [local, ...remoteMachines];
             });
+            
+            // Prefetch remote machine configs in background for instant tab switching
+            // Only prefetch once per session to avoid excessive network requests
+            if (!hasPrefetched.current && remoteMachines.length > 0) {
+                hasPrefetched.current = true;
+                const remoteIds = remoteMachines.map(m => m.id);
+                console.log(`[Machines] Triggering background prefetch for ${remoteIds.length} remote machines`);
+                // Fire and forget - prefetch runs in background
+                prefetchMachineConfigs(remoteIds);
+            }
         } catch (error) {
             console.error("Failed to fetch machines:", error);
             toast.error("Failed to load machines");
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [prefetchMachineConfigs]);
 
     const addMachine = useCallback(async (name: string, host: string, username: string, sshKeyId: number, port: number = 22, platform: string = "linux") => {
         try {
-            await invoke("add_machine", { name, host, username, sshKeyId, port, platform });
+            const newMachineId = await invoke<number>("add_machine", { name, host, username, sshKeyId, port, platform });
             toast.success("Machine added");
+            
+            // Prefetch the new machine's config immediately in the background
+            if (newMachineId) {
+                console.log(`[Machines] Prefetching config for newly added machine ${newMachineId}`);
+                prefetchSingleMachine(newMachineId.toString());
+            }
+            
             fetchMachines();
             return true;
         } catch (error) {
@@ -92,7 +114,7 @@ export function useMachines() {
             toast.error(`Failed to add machine: ${error}`);
             return false;
         }
-    }, [fetchMachines]);
+    }, [fetchMachines, prefetchSingleMachine]);
 
     const updateMachine = useCallback(async (id: string, name: string, host: string, username: string, sshKeyId: number, port: number = 22, platform: string = "linux") => {
         if (id === "local") {

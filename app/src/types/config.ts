@@ -58,11 +58,21 @@ export interface SourceConfig {
   md5Hash?: string;
 }
 
+export interface DiffLine {
+  tag: "equal" | "insert" | "delete";
+  content: string;
+}
+
 export interface SyncItem {
   name: string;
   status: "Synced" | "CreatedInB" | "DeletedFromB" | "UpdatedInB" | "CreatedInA" | "DeletedFromA" | "UpdatedInA" | "Conflict";
   actionDescription: string;
   diff?: string;
+  diffLines?: DiffLine[];
+  claudeJson?: string;
+  opencodeJson?: string;
+  claudeAsOpencodeJson?: string;
+  opencodeAsClaudeJson?: string;
   contentMatches?: string[];
 }
 

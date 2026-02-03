@@ -1,19 +1,40 @@
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriApi } from "@/lib/tauri";
 import { ClaudeMCPServer, OpenCodeMCPServer, ClaudeConfig, OpenCodeConfig } from "@/types/config";
 
+// Cache configuration constants
+// For remote connections, we want data to be considered fresh for longer
+// to avoid unnecessary SSH connections on every tab switch
+export const CACHE_CONFIG = {
+  // How long data is considered "fresh" (won't re-fetch)
+  REMOTE_STALE_TIME: 5 * 60 * 1000, // 5 minutes for remote configs
+  LOCAL_STALE_TIME: 30 * 1000,       // 30 seconds for local configs
+  
+  // How long to keep data in cache after it becomes unused
+  GC_TIME: 30 * 60 * 1000,           // 30 minutes garbage collection
+  
+  // Retry configuration for failed requests
+  RETRY_COUNT: 2,
+  RETRY_DELAY: 1000,
+};
+
 export const QUERY_KEYS = {
   paths: ["paths"],
   claude: (path: string) => ["claude", path],
   opencode: (path: string) => ["opencode", path],
+  // Specific keys for remote prefetching
+  remoteClaudeConfig: (machineId: string) => ["remote-claude-config", machineId],
+  remoteOpenCodeConfig: (machineId: string) => ["remote-opencode-config", machineId],
 };
 
 export function useConfigPaths() {
   const query = useQuery({
     queryKey: QUERY_KEYS.paths,
     queryFn: tauriApi.getDefaultConfigPaths,
+    staleTime: CACHE_CONFIG.LOCAL_STALE_TIME,
+    gcTime: CACHE_CONFIG.GC_TIME,
   });
   
   return {
@@ -25,14 +46,9 @@ export function useConfigPaths() {
 // Helper hook to get the remote path
 export function useRemoteConfigPaths(machineId: string) {
     const isRemote = machineId !== "local";
-    const queryClient = useQueryClient();
     
-    // Invalidate queries when machine ID changes
-    useEffect(() => {
-        if (isRemote) {
-            queryClient.invalidateQueries({ queryKey: ["remote-path"] });
-        }
-    }, [machineId, isRemote, queryClient]);
+    // Only invalidate on explicit user actions (refresh button), 
+    // NOT on machine ID changes - we want to use cached data!
     
     const claudeQuery = useQuery({
         queryKey: ["remote-path", "claude", machineId],
@@ -41,7 +57,11 @@ export function useRemoteConfigPaths(machineId: string) {
             const res = await tauriApi.readRemoteClaudeConfig(parseInt(machineId));
             return res.path;
         },
-        enabled: isRemote
+        enabled: isRemote,
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+        refetchOnMount: false, // Use cached data on mount
+        refetchOnWindowFocus: false, // Don't refetch on focus for remote
     });
 
     const opencodeQuery = useQuery({
@@ -51,16 +71,25 @@ export function useRemoteConfigPaths(machineId: string) {
             const res = await tauriApi.readRemoteOpenCodeConfig(parseInt(machineId));
             return res.path;
         },
-        enabled: isRemote
+        enabled: isRemote,
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
     });
+
+    const refetch = useCallback(() => {
+        claudeQuery.refetch();
+        opencodeQuery.refetch();
+    }, [claudeQuery, opencodeQuery]);
 
     return {
         claudePath: claudeQuery.data,
         opencodePath: opencodeQuery.data,
-        refetch: () => {
-            claudeQuery.refetch();
-            opencodeQuery.refetch();
-        }
+        isLoading: claudeQuery.isLoading || opencodeQuery.isLoading,
+        isFetching: claudeQuery.isFetching || opencodeQuery.isFetching,
+        isStale: claudeQuery.isStale || opencodeQuery.isStale,
+        refetch
     };
 }
 
@@ -79,7 +108,7 @@ export function useClaudeConfig(path: string | undefined, machineId: string = "l
     };
   }, [queryClient, queryKey, isRemote]);
 
-  return useQuery({
+  const query = useQuery({
     queryKey,
     queryFn: async () => {
         if (isRemote) {
@@ -100,7 +129,20 @@ export function useClaudeConfig(path: string | undefined, machineId: string = "l
         }
     },
     enabled: (isRemote) || (!!path),
+    // Caching configuration
+    staleTime: isRemote ? CACHE_CONFIG.REMOTE_STALE_TIME : CACHE_CONFIG.LOCAL_STALE_TIME,
+    gcTime: CACHE_CONFIG.GC_TIME,
+    refetchOnMount: isRemote ? false : true, // Use cached data for remote on mount
+    refetchOnWindowFocus: isRemote ? false : true,
+    retry: isRemote ? CACHE_CONFIG.RETRY_COUNT : 0,
+    retryDelay: CACHE_CONFIG.RETRY_DELAY,
   });
+
+  return {
+    ...query,
+    isFetching: query.isFetching,
+    isStale: query.isStale,
+  };
 }
 
 export function useOpenCodeConfig(path: string | undefined, machineId: string = "local") {
@@ -118,7 +160,7 @@ export function useOpenCodeConfig(path: string | undefined, machineId: string = 
     };
   }, [queryClient, queryKey, isRemote]);
 
-  return useQuery({
+  const query = useQuery({
     queryKey,
     queryFn: async () => {
         if (isRemote) {
@@ -137,7 +179,20 @@ export function useOpenCodeConfig(path: string | undefined, machineId: string = 
         }
     },
     enabled: (isRemote) || (!!path),
+    // Caching configuration
+    staleTime: isRemote ? CACHE_CONFIG.REMOTE_STALE_TIME : CACHE_CONFIG.LOCAL_STALE_TIME,
+    gcTime: CACHE_CONFIG.GC_TIME,
+    refetchOnMount: isRemote ? false : true,
+    refetchOnWindowFocus: isRemote ? false : true,
+    retry: isRemote ? CACHE_CONFIG.RETRY_COUNT : 0,
+    retryDelay: CACHE_CONFIG.RETRY_DELAY,
   });
+
+  return {
+    ...query,
+    isFetching: query.isFetching,
+    isStale: query.isStale,
+  };
 }
 
 export function useClaudeMutations(path: string, machineId: string = "local") {
@@ -189,6 +244,26 @@ export function useClaudeMutations(path: string, machineId: string = "local") {
   return { updateServer, toggleServer, deleteServer };
 }
 
+export function useClaudeBatchMutations(path: string, machineId: string = "local") {
+  const queryClient = useQueryClient();
+  const isRemote = machineId !== "local";
+  const queryKey = QUERY_KEYS.claude(isRemote ? `remote-${machineId}` : (path || ""));
+
+  const batchToggle = useMutation({
+    mutationFn: async (items: { name: string; enabled: boolean }[]) => {
+      if (isRemote) {
+        throw new Error("Batch operations not supported for remote machines yet");
+      }
+      return tauriApi.batchToggleClaudeServers(path, items);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  return { batchToggle };
+}
+
 
 export function useOpenCodeMutations(path: string, machineId: string = "local") {
   const queryClient = useQueryClient();
@@ -220,4 +295,107 @@ export function useOpenCodeMutations(path: string, machineId: string = "local") 
   });
 
   return { updateServer, deleteServer };
+}
+
+export function useOpenCodeBatchMutations(path: string, machineId: string = "local") {
+  const queryClient = useQueryClient();
+  const isRemote = machineId !== "local";
+  const queryKey = QUERY_KEYS.opencode(isRemote ? `remote-${machineId}` : (path || ""));
+
+  const batchToggle = useMutation({
+    mutationFn: async (items: { name: string; enabled: boolean }[]) => {
+      if (isRemote) {
+        throw new Error("Batch operations not supported for remote machines yet");
+      }
+      return tauriApi.batchToggleOpencodeServers(path, items);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  return { batchToggle };
+}
+
+/**
+ * Hook to prefetch remote machine configurations in the background.
+ * Call this after machines list is loaded to warm up the cache.
+ * 
+ * This enables instant tab switching by pre-fetching data before user needs it.
+ */
+export function usePrefetchRemoteConfigs() {
+  const queryClient = useQueryClient();
+
+  const prefetchMachineConfigs = useCallback(async (machineIds: string[]) => {
+    const remoteMachineIds = machineIds.filter(id => id !== "local");
+    
+    console.log(`[Cache] Prefetching configs for ${remoteMachineIds.length} remote machines...`);
+    
+    // Prefetch all remote machine configs in parallel
+    const prefetchPromises = remoteMachineIds.flatMap(machineId => [
+      // Prefetch Claude config
+      queryClient.prefetchQuery({
+        queryKey: QUERY_KEYS.claude(`remote-${machineId}`),
+        queryFn: async () => {
+          const response = await tauriApi.readRemoteClaudeConfig(parseInt(machineId));
+          return { config: response.config, exists: response.exists, appInstalled: response.app_installed };
+        },
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+      }),
+      // Prefetch OpenCode config
+      queryClient.prefetchQuery({
+        queryKey: QUERY_KEYS.opencode(`remote-${machineId}`),
+        queryFn: async () => {
+          const response = await tauriApi.readRemoteOpenCodeConfig(parseInt(machineId));
+          return { config: response.config, exists: response.exists, appInstalled: response.app_installed };
+        },
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+      }),
+    ]);
+
+    // Don't await - let it run in background
+    // But catch errors to prevent unhandled rejections
+    Promise.allSettled(prefetchPromises).then(results => {
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      const failCount = results.filter(r => r.status === 'rejected').length;
+      console.log(`[Cache] Prefetch complete: ${successCount} succeeded, ${failCount} failed`);
+    });
+  }, [queryClient]);
+
+  const prefetchSingleMachine = useCallback(async (machineId: string) => {
+    if (machineId === "local") return;
+    
+    console.log(`[Cache] Prefetching configs for machine ${machineId}...`);
+    
+    // Prefetch both configs
+    await Promise.allSettled([
+      queryClient.prefetchQuery({
+        queryKey: QUERY_KEYS.claude(`remote-${machineId}`),
+        queryFn: async () => {
+          const response = await tauriApi.readRemoteClaudeConfig(parseInt(machineId));
+          return { config: response.config, exists: response.exists, appInstalled: response.app_installed };
+        },
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: QUERY_KEYS.opencode(`remote-${machineId}`),
+        queryFn: async () => {
+          const response = await tauriApi.readRemoteOpenCodeConfig(parseInt(machineId));
+          return { config: response.config, exists: response.exists, appInstalled: response.app_installed };
+        },
+        staleTime: CACHE_CONFIG.REMOTE_STALE_TIME,
+        gcTime: CACHE_CONFIG.GC_TIME,
+      }),
+    ]);
+    
+    console.log(`[Cache] Prefetch complete for machine ${machineId}`);
+  }, [queryClient]);
+
+  return {
+    prefetchMachineConfigs,
+    prefetchSingleMachine,
+  };
 }
